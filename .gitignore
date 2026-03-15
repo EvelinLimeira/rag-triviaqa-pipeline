@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data files (large)
+data/raw/
+data/indices/
+
+# Results
+results/
+
+# Hypothesis
+.hypothesis/
+
+# deepeval
+.deepeval/
+
+# pytest
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kiro
+.kiro/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Claude suggestions (notebooks/drafts)
+claude_sugestions/

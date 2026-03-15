@@ -1,0 +1,35 @@
+"""Centralized configuration for the RAG TriviaQA pipeline."""
+
+# Models
+LLM_MODEL: str = "qwen3.5:9b"
+LLM_BASE_URL: str = "http://localhost:11434/v1"
+EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Retrieval
+RETRIEVAL_TOP_K: int = 500
+RERANKER_TOP_K: int = 5
+RRF_K: int = 60
+BM25_K1: float = 1.5
+BM25_B: float = 0.75
+
+# Encoding
+EMBEDDING_BATCH_SIZE: int = 64
+RERANKER_BATCH_SIZE: int = 64
+
+# Chunking (full-pool only)
+CHUNK_SIZE: int = 512
+CHUNK_OVERLAP: int = 64
+
+# LLM
+LLM_TEMPERATURE: float = 0.0
+LLM_MAX_TOKENS: int = 256
+LLM_NUM_CTX: int = 8192
+
+# Evaluation
+EVAL_SAMPLE_SIZE: int = 584
+HIT_RATE_K_VALUES: list[int] = [1, 3, 5, 10]
+
+# deepeval
+DEEPEVAL_MODEL: str = "qwen3.5:9b"
+DEEPEVAL_BASE_URL: str = "http://localhost:11434/v1"
