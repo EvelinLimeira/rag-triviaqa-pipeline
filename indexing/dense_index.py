@@ -8,7 +8,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from config.settings import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL
+from config.settings import DEVICE, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 def create_embeddings(
     model_name: str = EMBEDDING_MODEL,
-    device: str = "cuda",
+    device: str = DEVICE,
     batch_size: int = EMBEDDING_BATCH_SIZE,
 ) -> HuggingFaceEmbeddings:
     """Create a HuggingFaceEmbeddings instance with the BGE query instruction prefix.
@@ -44,7 +44,7 @@ def create_embeddings(
 def build_faiss_store(
     documents: list[Document],
     model_name: str = EMBEDDING_MODEL,
-    device: str = "cuda",
+    device: str = DEVICE,
     batch_size: int = EMBEDDING_BATCH_SIZE,
     use_ivf: bool = False,
 ) -> FAISS:

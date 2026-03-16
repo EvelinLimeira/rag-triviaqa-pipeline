@@ -13,6 +13,7 @@ from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
 from config import settings
+from config.settings import DEVICE
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class Reranker:
     def __init__(
         self,
         model_name: str = settings.RERANKER_MODEL,
-        device: str = "cuda",
+        device: str = DEVICE,
         batch_size: int = settings.RERANKER_BATCH_SIZE,
     ) -> None:
         """Initialize the Reranker by loading the cross-encoder model.

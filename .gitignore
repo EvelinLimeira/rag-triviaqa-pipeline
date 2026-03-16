@@ -43,5 +43,4 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# Claude suggestions (notebooks/drafts)
-claude_sugestions/
+

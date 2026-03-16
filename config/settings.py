@@ -1,5 +1,24 @@
 """Centralized configuration for the RAG TriviaQA pipeline."""
 
+import logging
+import torch
+
+logger = logging.getLogger(__name__)
+
+# Device auto-detection
+DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
+
+if DEVICE == "cuda":
+    _gpu_name = torch.cuda.get_device_name(0)
+    _gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+    logger.info("Using GPU: %s (%.1f GB VRAM)", _gpu_name, _gpu_mem)
+else:
+    logger.warning(
+        "CUDA not available — running on CPU. "
+        "Performance will be significantly slower. "
+        "Connect your NVIDIA GPU for faster execution."
+    )
+
 # Models
 LLM_MODEL: str = "qwen3.5:9b"
 LLM_BASE_URL: str = "http://localhost:11434/v1"

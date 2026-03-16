@@ -4,7 +4,7 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from config.settings import BM25_B, BM25_K1, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL
+from config.settings import BM25_B, BM25_K1, DEVICE, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL
 from indexing.bm25_index import build_bm25_retriever
 from indexing.dense_index import build_faiss_store
 
@@ -13,7 +13,7 @@ def build_hybrid_indices(
     documents: list[Document],
     k: int,
     model_name: str = EMBEDDING_MODEL,
-    device: str = "cuda",
+    device: str = DEVICE,
     batch_size: int = EMBEDDING_BATCH_SIZE,
     k1: float = BM25_K1,
     b: float = BM25_B,

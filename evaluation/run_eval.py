@@ -411,7 +411,7 @@ class EvaluationOrchestrator:
 
             # Phase 1: Build indices (embedding model loaded)
             bm25 = build_bm25_retriever(corpus, k=corpus_size)
-            faiss_store = build_faiss_store(corpus, device="cuda")
+            faiss_store = build_faiss_store(corpus)
 
             # Unload embedding model after FAISS construction
             if hasattr(faiss_store, "embedding_function") and faiss_store.embedding_function is not None:

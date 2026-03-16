@@ -6,12 +6,12 @@ RAG pipeline for TriviaQA with BM25, Dense, and Hybrid retrieval, cross-encoder 
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌────────────┐
-│  Data Load   │───▶│   Indexing    │───▶│  Retrieval   │───▶│ Generation │
-│  (HF Hub)    │    │ BM25 + FAISS │    │ + Reranking  │    │  (Ollama)  │
+│  Data Load  │──> │   Indexing   │───>│  Retrieval  │───>│ Generation │
+│  (HF Hub)   │    │ BM25 + FAISS │    │ + Reranking │    │  (Ollama)  │
 └─────────────┘    └──────────────┘    └─────────────┘    └─────┬──────┘
                                                                 │
                                                           ┌─────▼──────┐
-                                                          │ Evaluation  │
+                                                          │ Evaluation │
                                                           │ IR + LLM   │
                                                           └────────────┘
 ```
