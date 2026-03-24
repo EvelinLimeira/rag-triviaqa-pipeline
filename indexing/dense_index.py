@@ -38,6 +38,7 @@ def create_embeddings(
             "normalize_embeddings": True,
         },
         query_encode_kwargs={"prompt_name": "query"},
+        show_progress=True,
     )
 
 
@@ -47,20 +48,24 @@ def build_faiss_store(
     device: str = DEVICE,
     batch_size: int = EMBEDDING_BATCH_SIZE,
     use_ivf: bool = False,
+    index_batch_size: int = 50_000,
 ) -> FAISS:
     """Build a FAISS vector store from LangChain Documents.
 
-    Creates embeddings using HuggingFaceEmbeddings and builds a FAISS index.
-    Uses IndexFlatIP for per-query mode and IndexIVFFlat (nprobe=10) for
-    full-pool mode when use_ivf is True.
+    Creates embeddings using HuggingFaceEmbeddings and builds a FAISS index
+    incrementally in batches to reduce peak memory usage and provide progress
+    feedback. Uses IndexFlatIP for per-query mode and IndexIVFFlat (nprobe=10)
+    for full-pool mode when use_ivf is True.
 
     Args:
         documents: List of LangChain Document objects to index.
         model_name: HuggingFace model identifier. Defaults to bge-base-en-v1.5.
         device: Device to load the model on ('cuda' or 'cpu').
-        batch_size: Batch size for encoding documents. Defaults to 64.
+        batch_size: Batch size for encoding documents. Defaults to 256.
         use_ivf: If True, replace the flat index with IndexIVFFlat and set
             nprobe=10. Intended for large corpora (>100k docs).
+        index_batch_size: Number of documents per indexing batch.
+            Defaults to 50,000.
 
     Returns:
         A FAISS vector store instance.
@@ -77,7 +82,24 @@ def build_faiss_store(
         batch_size=batch_size,
     )
 
-    store = FAISS.from_documents(documents, embeddings)
+    total = len(documents)
+    logger.info("Building FAISS index: %d documents in batches of %d", total, index_batch_size)
+
+    # Build initial store from first batch
+    first_batch = documents[:index_batch_size]
+    store = FAISS.from_documents(first_batch, embeddings)
+    logger.info("Indexed batch 1/%d (%d docs)", (total + index_batch_size - 1) // index_batch_size, len(first_batch))
+
+    # Add remaining batches incrementally
+    for i in range(index_batch_size, total, index_batch_size):
+        batch = documents[i : i + index_batch_size]
+        batch_store = FAISS.from_documents(batch, embeddings)
+        store.merge_from(batch_store)
+        batch_num = (i // index_batch_size) + 1
+        total_batches = (total + index_batch_size - 1) // index_batch_size
+        logger.info("Indexed batch %d/%d (%d docs)", batch_num, total_batches, len(batch))
+
+    logger.info("FAISS index complete: %d vectors", store.index.ntotal)
 
     if use_ivf:
         _replace_with_ivf_index(store)

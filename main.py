@@ -95,8 +95,13 @@ def cmd_evaluate(sample_size: int) -> None:
     Args:
         sample_size: Number of queries to evaluate.
     """
+    logger.info("Loading document pool from %s ...", POOL_PATH)
+    pool_docs = load_documents_pool(POOL_PATH)
+    doc_pool = {doc.metadata["doc_id"]: doc.page_content for doc in pool_docs}
+    logger.info("Loaded %d documents in pool.", len(doc_pool))
+
     logger.info("Loading TriviaQA entries from %s ...", TRIVIAQA_PATH)
-    entries = load_triviaqa(TRIVIAQA_PATH)
+    entries = load_triviaqa(TRIVIAQA_PATH, doc_pool=doc_pool)
     logger.info("Loaded %d entries.", len(entries))
 
     orchestrator = EvaluationOrchestrator(sample_size=sample_size)
@@ -118,8 +123,14 @@ def cmd_evaluate_full_pool(sample_size: int) -> None:
     Args:
         sample_size: Number of queries to evaluate.
     """
+    # Load document pool (used for both entry resolution and doc_map)
+    logger.info("Loading document pool from %s ...", POOL_PATH)
+    pool_docs = load_documents_pool(POOL_PATH)
+    doc_pool = {doc.metadata["doc_id"]: doc.page_content for doc in pool_docs}
+    logger.info("Loaded %d documents in pool.", len(doc_pool))
+
     logger.info("Loading TriviaQA entries from %s ...", TRIVIAQA_PATH)
-    entries = load_triviaqa(TRIVIAQA_PATH)
+    entries = load_triviaqa(TRIVIAQA_PATH, doc_pool=doc_pool)
     logger.info("Loaded %d entries.", len(entries))
 
     # Load pre-built BM25 index
@@ -132,16 +143,9 @@ def cmd_evaluate_full_pool(sample_size: int) -> None:
     embeddings = create_embeddings()
     faiss_store = load_faiss_store(FAISS_INDEX_PATH, embeddings)
 
-    # Build doc_map from the pool for reference
-    logger.info("Loading document pool for doc_map ...")
-    pool_docs = load_documents_pool(POOL_PATH)
-    doc_map = {
-        doc.metadata["doc_id"]: doc.page_content for doc in pool_docs
-    }
-
     orchestrator = EvaluationOrchestrator(sample_size=sample_size)
     logger.info("Running full-pool evaluation (sample_size=%d) ...", sample_size)
-    results = orchestrator.run_full_pool(entries, bm25_retriever, faiss_store, doc_map)
+    results = orchestrator.run_full_pool(entries, bm25_retriever, faiss_store, doc_pool)
 
     orchestrator.print_comparison_table(results)
 

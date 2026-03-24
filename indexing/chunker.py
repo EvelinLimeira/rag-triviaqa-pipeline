@@ -7,6 +7,7 @@ into passage-sized chunks for indexing in full-pool mode.
 import logging
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from tqdm import tqdm
 
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
 
@@ -39,7 +40,7 @@ def chunk_documents(
 
     result: list[Document] = []
 
-    for doc in documents:
+    for doc in tqdm(documents, desc="Chunking documents"):
         original_doc_id = doc.metadata.get("doc_id", "")
 
         if len(doc.page_content) <= chunk_size:

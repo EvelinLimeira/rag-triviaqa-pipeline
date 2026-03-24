@@ -23,9 +23,10 @@ def build_prompt(question: str, context_docs: list[str]) -> list[dict[str, str]]
     """
     system_content = (
         "You are a helpful assistant that answers questions using ONLY the provided context. "
-        "Do not use chain-of-thought. Answer directly. "
-        "If the context does not contain the answer, respond with \"I don't know\". "
-        "Keep your answer concise: 1-2 sentences maximum."
+        "Do not use chain-of-thought. Do not explain your reasoning. "
+        "Answer with ONLY the shortest possible answer — a single word, name, number, or short phrase. "
+        "Do not write full sentences. Do not add any extra information. "
+        "If the context does not contain the answer, respond with \"I don't know\"."
     )
 
     context_block = "\n\n".join(

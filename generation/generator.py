@@ -46,6 +46,7 @@ class Generator:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            api_key="ollama",  # dummy key — Ollama ignores it
         )
 
     def generate(self, question: str, context_docs: list[str]) -> str:

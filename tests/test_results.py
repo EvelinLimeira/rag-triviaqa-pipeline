@@ -35,6 +35,7 @@ def _make_sample_results() -> dict[str, EvaluationResults]:
                 "f1": 0.85 + i * 0.01,
                 "correctness": 0.9,
                 "faithfulness": 0.8,
+                "relevancy": 0.75,
             },
         )
         results[config] = EvaluationResults(
@@ -55,7 +56,7 @@ class TestPrintComparisonTable:
         orch.print_comparison_table(results)
         output = capsys.readouterr().out
 
-        for col in ["Retriever", "Hit@1", "Hit@5", "Hit@10", "MRR", "EM", "F1", "Correct", "Faithful"]:
+        for col in ["Retriever", "Hit@1", "Hit@5", "Hit@10", "MRR", "EM", "F1", "Correct", "Faithful", "Relevancy"]:
             assert col in output
 
     def test_prints_one_row_per_config(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -155,7 +156,7 @@ class TestSaveResults:
         with open(md_path, encoding="utf-8") as f:
             content = f.read()
 
-        for col in ["Retriever", "Hit@1", "Hit@5", "Hit@10", "MRR", "EM", "F1", "Correct", "Faithful"]:
+        for col in ["Retriever", "Hit@1", "Hit@5", "Hit@10", "MRR", "EM", "F1", "Correct", "Faithful", "Relevancy"]:
             assert col in content
 
         for config in ALL_CONFIGS:
@@ -191,6 +192,7 @@ _METRIC_KEYS = [
     "f1",
     "correctness",
     "faithfulness",
+    "relevancy",
 ]
 
 _metric_dict_strategy = st.fixed_dictionaries(
@@ -256,6 +258,120 @@ def test_property21_markdown_table_contains_required_columns(
         "F1",
         "Correct",
         "Faithful",
+        "Relevancy",
     ]
     for col in required_columns:
         assert col in output, f"Required column '{col}' missing from table output"
+
+
+# ============================================================
+# Property-based test for relevancy present in results
+# Feature: llm-eval-improvements, Property 2: Métrica relevancy presente nos resultados
+# **Validates: Requirements 1.3**
+# ============================================================
+
+from unittest.mock import patch, MagicMock
+
+from evaluation.run_eval import _compute_query_metrics
+
+
+class TestRelevancyPresentInResults:
+    """Property 2: Métrica relevancy presente nos resultados.
+
+    For any query result computed by the orchestrator, the metrics
+    dictionary must contain the key "relevancy" with a float value.
+    """
+
+    @given(
+        prediction=st.text(min_size=1, max_size=100),
+        question=st.text(min_size=1, max_size=100),
+        context=st.lists(st.text(min_size=1, max_size=100), min_size=1, max_size=3),
+        references=st.lists(st.text(min_size=1, max_size=100), min_size=1, max_size=3),
+    )
+    @settings(max_examples=100)
+    def test_relevancy_key_present_in_metrics(
+        self,
+        prediction: str,
+        question: str,
+        context: list[str],
+        references: list[str],
+    ) -> None:
+        """_compute_query_metrics always includes 'relevancy' in the result dict."""
+        with patch("evaluation.run_eval.llm_judge_correctness", return_value=0.5), \
+             patch("evaluation.run_eval.llm_judge_faithfulness", return_value=0.5), \
+             patch("evaluation.run_eval.llm_judge_relevancy", return_value=0.5):
+            metrics = _compute_query_metrics(
+                retrieved_ids=["doc1"],
+                golden_ids={"doc1"},
+                generated_answer=prediction,
+                reference_answers=references,
+                context_docs=context,
+                question=question,
+            )
+
+        assert "relevancy" in metrics, (
+            f"'relevancy' key missing from metrics: {list(metrics.keys())}"
+        )
+        assert isinstance(metrics["relevancy"], float)
+
+
+# ============================================================
+# Unit tests for orchestrator integration
+# Validates: Requirements 1.3, 1.4, 4.1, 4.3
+# ============================================================
+
+
+class TestOrchestratorRelevancyIntegration:
+    """Unit tests for relevancy integration in the orchestrator."""
+
+    def test_compute_query_metrics_includes_relevancy(self) -> None:
+        """_compute_query_metrics includes 'relevancy' in the metrics dict.
+
+        Validates: Requirements 1.3, 4.1
+        """
+        with patch("evaluation.run_eval.llm_judge_correctness", return_value=0.9), \
+             patch("evaluation.run_eval.llm_judge_faithfulness", return_value=0.8), \
+             patch("evaluation.run_eval.llm_judge_relevancy", return_value=0.75):
+            metrics = _compute_query_metrics(
+                retrieved_ids=["doc1"],
+                golden_ids={"doc1"},
+                generated_answer="Paris",
+                reference_answers=["Paris"],
+                context_docs=["Paris is the capital of France"],
+                question="What is the capital of France?",
+            )
+
+        assert "relevancy" in metrics
+        assert metrics["relevancy"] == 0.75
+
+    def test_comparison_table_contains_relevancy_column(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """print_comparison_table includes a 'Relevancy' column.
+
+        Validates: Requirements 1.4
+        """
+        orch = EvaluationOrchestrator(sample_size=10)
+        results = _make_sample_results()
+        orch.print_comparison_table(results)
+        output = capsys.readouterr().out
+
+        assert "Relevancy" in output
+
+    def test_save_results_markdown_contains_relevancy(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        """save_results markdown includes 'Relevancy' column.
+
+        Validates: Requirements 1.4, 4.3
+        """
+        orch = EvaluationOrchestrator(sample_size=10)
+        results = _make_sample_results()
+        out_dir = str(tmp_path / "output")
+        orch.save_results(results, out_dir)
+
+        md_path = os.path.join(out_dir, "summary.md")
+        with open(md_path, encoding="utf-8") as f:
+            content = f.read()
+
+        assert "Relevancy" in content

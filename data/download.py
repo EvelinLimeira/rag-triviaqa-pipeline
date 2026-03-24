@@ -4,7 +4,10 @@ import logging
 import os
 import sys
 
+from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,7 @@ def download_dataset(data_dir: str = "data/raw") -> None:
                 filename=filename,
                 repo_type=REPO_TYPE,
                 local_dir=data_dir,
+                token=os.environ.get("HF_TOKEN"),
             )
             logger.info("Downloaded %s to %s", filename, data_dir)
         except Exception as exc:

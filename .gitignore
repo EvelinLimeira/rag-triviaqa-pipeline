@@ -36,6 +36,9 @@ results/
 # Kiro
 .kiro/
 
+# Environment variables
+.env
+
 # OS
 Thumbs.db
 .DS_Store

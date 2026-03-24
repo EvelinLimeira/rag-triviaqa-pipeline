@@ -31,6 +31,7 @@ from evaluation.llm_metrics import (
     exact_match,
     llm_judge_correctness,
     llm_judge_faithfulness,
+    llm_judge_relevancy,
     token_f1,
 )
 from generation.generator import Generator
@@ -159,6 +160,11 @@ def _compute_query_metrics(
         generated_answer, reference_answers, question
     )
     metrics["faithfulness"] = llm_judge_faithfulness(
+        generated_answer, context_docs, question
+    )
+
+    # Answer relevancy
+    metrics["relevancy"] = llm_judge_relevancy(
         generated_answer, context_docs, question
     )
 
@@ -405,9 +411,7 @@ class EvaluationOrchestrator:
         for entry in tqdm(entries, desc="Per-query evaluation"):
             corpus = get_per_query_corpus(entry)
             corpus_size = len(corpus)
-            golden_ids = {
-                doc.metadata["doc_id"] for doc in entry.golden_docs
-            }
+            golden_ids = set(entry.golden_doc_ids)
 
             # Phase 1: Build indices (embedding model loaded)
             bm25 = build_bm25_retriever(corpus, k=corpus_size)
@@ -489,9 +493,7 @@ class EvaluationOrchestrator:
         generator = Generator()
 
         for entry in tqdm(entries, desc="Full-pool evaluation"):
-            golden_ids = {
-                doc.metadata["doc_id"] for doc in entry.golden_docs
-            }
+            golden_ids = set(entry.golden_doc_ids)
 
             for config_name in ALL_CONFIGS:
                 qr = _run_single_config_full_pool(
@@ -578,6 +580,7 @@ class EvaluationOrchestrator:
             ("F1", "f1"),
             ("Correct", "correctness"),
             ("Faithful", "faithfulness"),
+            ("Relevancy", "relevancy"),
         ]
 
         header = "| " + " | ".join(col[0] for col in columns) + " |"
@@ -670,6 +673,7 @@ class EvaluationOrchestrator:
             ("F1", "f1"),
             ("Correct", "correctness"),
             ("Faithful", "faithfulness"),
+            ("Relevancy", "relevancy"),
         ]
 
         header = "| " + " | ".join(col[0] for col in columns) + " |"

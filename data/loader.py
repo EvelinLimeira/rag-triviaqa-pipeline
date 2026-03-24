@@ -13,7 +13,7 @@ from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_FIELDS = {"question", "answer", "golden_docs", "noise_docs"}
+REQUIRED_FIELDS = {"query", "golden_doc", "reference", "ground_truth"}
 
 
 @dataclass
@@ -23,14 +23,18 @@ class TriviaQAEntry:
     Attributes:
         question: The trivia question string.
         answers: List of valid answer strings.
-        golden_docs: LangChain Documents that contain the answer,
-            each with ``metadata["doc_id"]``.
-        noise_docs: LangChain distractor Documents,
-            each with ``metadata["doc_id"]``.
+        golden_doc_ids: List of document IDs that contain the answer.
+        noise_doc_ids: List of distractor document IDs.
+        golden_docs: LangChain Documents that contain the answer
+            (populated after resolving against the document pool).
+        noise_docs: LangChain distractor Documents
+            (populated after resolving against the document pool).
     """
 
     question: str
     answers: list[str]
+    golden_doc_ids: list[str]
+    noise_doc_ids: list[str]
     golden_docs: list[Document]
     noise_docs: list[Document]
 
@@ -52,16 +56,23 @@ def _parse_docs(raw_docs: list[dict]) -> list[Document]:
     ]
 
 
-def load_triviaqa(filepath: str) -> list[TriviaQAEntry]:
+def load_triviaqa(
+    filepath: str,
+    doc_pool: dict[str, str] | None = None,
+) -> list[TriviaQAEntry]:
     """Parse a TriviaQA JSONL file into a list of entries.
 
-    Each line of the file is expected to be a JSON object with fields:
-    ``question``, ``answer``, ``golden_docs``, and ``noise_docs``.
-    Lines with invalid JSON or missing required fields are skipped with
-    a logged warning that includes the 1-based line number.
+    Each line is a JSON object with fields: ``query``, ``golden_doc``
+    (list of doc IDs), ``reference`` (list of noise doc IDs), and
+    ``ground_truth`` (list of answer strings).
+
+    If *doc_pool* is provided (mapping doc_id → content), the entry's
+    ``golden_docs`` and ``noise_docs`` are populated with LangChain
+    Documents. Otherwise they remain empty lists.
 
     Args:
         filepath: Path to the ``triviaqa.jsonl`` file.
+        doc_pool: Optional mapping from document ID to content string.
 
     Returns:
         List of :class:`TriviaQAEntry` objects parsed from valid lines.
@@ -77,16 +88,12 @@ def load_triviaqa(filepath: str) -> list[TriviaQAEntry]:
             if not line:
                 continue
 
-            # Parse JSON
             try:
                 data = json.loads(line)
             except json.JSONDecodeError:
-                logger.warning(
-                    "Skipping line %d: invalid JSON", line_num
-                )
+                logger.warning("Skipping line %d: invalid JSON", line_num)
                 continue
 
-            # Validate required fields
             missing = REQUIRED_FIELDS - data.keys()
             if missing:
                 logger.warning(
@@ -96,12 +103,38 @@ def load_triviaqa(filepath: str) -> list[TriviaQAEntry]:
                 )
                 continue
 
+            golden_doc_ids = data["golden_doc"]
+            noise_doc_ids = data["reference"]
+
+            golden_docs: list[Document] = []
+            noise_docs: list[Document] = []
+
+            if doc_pool is not None:
+                for doc_id in golden_doc_ids:
+                    if doc_id in doc_pool:
+                        golden_docs.append(
+                            Document(
+                                page_content=doc_pool[doc_id],
+                                metadata={"doc_id": doc_id},
+                            )
+                        )
+                for doc_id in noise_doc_ids:
+                    if doc_id in doc_pool:
+                        noise_docs.append(
+                            Document(
+                                page_content=doc_pool[doc_id],
+                                metadata={"doc_id": doc_id},
+                            )
+                        )
+
             entries.append(
                 TriviaQAEntry(
-                    question=data["question"],
-                    answers=data["answer"],
-                    golden_docs=_parse_docs(data["golden_docs"]),
-                    noise_docs=_parse_docs(data["noise_docs"]),
+                    question=data["query"],
+                    answers=data["ground_truth"],
+                    golden_doc_ids=golden_doc_ids,
+                    noise_doc_ids=noise_doc_ids,
+                    golden_docs=golden_docs,
+                    noise_docs=noise_docs,
                 )
             )
 
@@ -109,10 +142,10 @@ def load_triviaqa(filepath: str) -> list[TriviaQAEntry]:
 
 
 def load_documents_pool(filepath: str) -> list[Document]:
-    """Load the full document pool from a JSON array file.
+    """Load the full document pool from a JSON file.
 
-    The file is expected to contain a JSON array of objects, each with
-    ``"doc_id"`` and ``"content"`` fields.
+    The file is expected to contain a JSON object mapping document IDs
+    to their content strings, e.g. ``{"Document_1": "content...", ...}``.
 
     Args:
         filepath: Path to the ``documents_pool.json`` file.
@@ -126,6 +159,12 @@ def load_documents_pool(filepath: str) -> list[Document]:
     """
     with open(filepath, "r", encoding="utf-8") as fh:
         raw_pool = json.load(fh)
+
+    if isinstance(raw_pool, dict):
+        return [
+            Document(page_content=content, metadata={"doc_id": doc_id})
+            for doc_id, content in raw_pool.items()
+        ]
 
     return _parse_docs(raw_pool)
 

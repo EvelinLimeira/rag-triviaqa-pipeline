@@ -34,10 +34,21 @@ lc_documents = st.builds(
     ),
 )
 
+doc_id_st = st.text(
+    min_size=1,
+    max_size=20,
+    alphabet=st.characters(
+        whitelist_categories=("L", "N"),
+        whitelist_characters="_-",
+    ),
+)
+
 triviaqa_entries = st.builds(
     TriviaQAEntry,
     question=st.text(min_size=1, max_size=200),
     answers=st.lists(st.text(min_size=1, max_size=100), min_size=1, max_size=5),
+    golden_doc_ids=st.lists(doc_id_st, min_size=1, max_size=5),
+    noise_doc_ids=st.lists(doc_id_st, min_size=0, max_size=10),
     golden_docs=st.lists(lc_documents, min_size=1, max_size=5),
     noise_docs=st.lists(lc_documents, min_size=0, max_size=10),
 )
@@ -57,21 +68,21 @@ def test_triviaqa_entry_round_trip(entry: TriviaQAEntry) -> None:
     and verify equivalence of question, answers, and all Document
     page_content / metadata['doc_id']."""
 
-    # Serialize entry to the JSONL dict format expected by load_triviaqa
+    # Build a doc_pool so load_triviaqa can resolve IDs to Documents
+    doc_pool: dict[str, str] = {}
+    for d in entry.golden_docs:
+        doc_pool[d.metadata["doc_id"]] = d.page_content
+    for d in entry.noise_docs:
+        doc_pool[d.metadata["doc_id"]] = d.page_content
+
+    # Use golden_doc_ids / noise_doc_ids as the ID lists in the JSONL
     serialized = {
-        "question": entry.question,
-        "answer": entry.answers,
-        "golden_docs": [
-            {"doc_id": d.metadata["doc_id"], "content": d.page_content}
-            for d in entry.golden_docs
-        ],
-        "noise_docs": [
-            {"doc_id": d.metadata["doc_id"], "content": d.page_content}
-            for d in entry.noise_docs
-        ],
+        "query": entry.question,
+        "ground_truth": entry.answers,
+        "golden_doc": [d.metadata["doc_id"] for d in entry.golden_docs],
+        "reference": [d.metadata["doc_id"] for d in entry.noise_docs],
     }
 
-    # Write to a temp JSONL file and parse back
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
     ) as f:
@@ -79,7 +90,7 @@ def test_triviaqa_entry_round_trip(entry: TriviaQAEntry) -> None:
         tmp_path = f.name
 
     try:
-        parsed = load_triviaqa(tmp_path)
+        parsed = load_triviaqa(tmp_path, doc_pool=doc_pool)
         assert len(parsed) == 1, f"Expected 1 entry, got {len(parsed)}"
         result = parsed[0]
 
@@ -89,16 +100,14 @@ def test_triviaqa_entry_round_trip(entry: TriviaQAEntry) -> None:
         # Verify answers
         assert result.answers == entry.answers
 
-        # Verify golden_docs
+        # Verify golden_docs resolved from pool
         assert len(result.golden_docs) == len(entry.golden_docs)
         for orig, loaded in zip(entry.golden_docs, result.golden_docs):
-            assert loaded.page_content == orig.page_content
             assert loaded.metadata["doc_id"] == orig.metadata["doc_id"]
 
-        # Verify noise_docs
+        # Verify noise_docs resolved from pool
         assert len(result.noise_docs) == len(entry.noise_docs)
         for orig, loaded in zip(entry.noise_docs, result.noise_docs):
-            assert loaded.page_content == orig.page_content
             assert loaded.metadata["doc_id"] == orig.metadata["doc_id"]
     finally:
         os.unlink(tmp_path)
@@ -144,18 +153,18 @@ def test_per_query_corpus_is_union(entry: TriviaQAEntry) -> None:
 # Validates: Requirements 2.5
 
 # Strategy: generate a subset of required fields to omit (at least one missing)
-_required_fields = ["question", "answer", "golden_docs", "noise_docs"]
+_required_fields = ["query", "golden_doc", "reference", "ground_truth"]
 
 invalid_entries_strategy = st.fixed_dictionaries(
     {},
     optional={
-        "question": st.text(min_size=1, max_size=100),
-        "answer": st.lists(st.text(min_size=1, max_size=50), min_size=1, max_size=3),
-        "golden_docs": st.just([{"doc_id": "g1", "content": "golden text"}]),
-        "noise_docs": st.just([{"doc_id": "n1", "content": "noise text"}]),
+        "query": st.text(min_size=1, max_size=100),
+        "ground_truth": st.lists(st.text(min_size=1, max_size=50), min_size=1, max_size=3),
+        "golden_doc": st.just(["g1"]),
+        "reference": st.just(["n1"]),
     },
 ).filter(
-    lambda d: not {"question", "answer", "golden_docs", "noise_docs"}.issubset(d.keys())
+    lambda d: not {"query", "golden_doc", "reference", "ground_truth"}.issubset(d.keys())
 )
 
 
@@ -242,20 +251,20 @@ class TestLoadTriviaqa:
 
     def test_parse_single_valid_entry(self, tmp_path):
         """Parse a single well-formed JSONL line and verify all fields."""
+        doc_pool = {
+            "wiki_123": "Paris is the capital of France.",
+            "wiki_456": "Lyon is a city in France.",
+        }
         entry = {
-            "question": "What is the capital of France?",
-            "answer": ["Paris", "paris"],
-            "golden_docs": [
-                {"doc_id": "wiki_123", "content": "Paris is the capital of France."}
-            ],
-            "noise_docs": [
-                {"doc_id": "wiki_456", "content": "Lyon is a city in France."}
-            ],
+            "query": "What is the capital of France?",
+            "ground_truth": ["Paris", "paris"],
+            "golden_doc": ["wiki_123"],
+            "reference": ["wiki_456"],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
 
-        result = load_triviaqa(str(filepath))
+        result = load_triviaqa(str(filepath), doc_pool=doc_pool)
 
         assert len(result) == 1
         e = result[0]
@@ -271,16 +280,16 @@ class TestLoadTriviaqa:
         """Parse multiple valid JSONL lines."""
         entries = [
             {
-                "question": "Q1",
-                "answer": ["A1"],
-                "golden_docs": [{"doc_id": "g1", "content": "gold1"}],
-                "noise_docs": [],
+                "query": "Q1",
+                "ground_truth": ["A1"],
+                "golden_doc": ["g1"],
+                "reference": [],
             },
             {
-                "question": "Q2",
-                "answer": ["A2", "A2b"],
-                "golden_docs": [{"doc_id": "g2", "content": "gold2"}],
-                "noise_docs": [{"doc_id": "n2", "content": "noise2"}],
+                "query": "Q2",
+                "ground_truth": ["A2", "A2b"],
+                "golden_doc": ["g2"],
+                "reference": ["n2"],
             },
         ]
         filepath = tmp_path / "triviaqa.jsonl"
@@ -295,23 +304,17 @@ class TestLoadTriviaqa:
 
     def test_multiple_golden_and_noise_docs(self, tmp_path):
         """Entry with several golden and noise docs parses all of them."""
+        doc_pool = {"g1": "c1", "g2": "c2", "n1": "nc1", "n2": "nc2", "n3": "nc3"}
         entry = {
-            "question": "Q",
-            "answer": ["A"],
-            "golden_docs": [
-                {"doc_id": "g1", "content": "c1"},
-                {"doc_id": "g2", "content": "c2"},
-            ],
-            "noise_docs": [
-                {"doc_id": "n1", "content": "nc1"},
-                {"doc_id": "n2", "content": "nc2"},
-                {"doc_id": "n3", "content": "nc3"},
-            ],
+            "query": "Q",
+            "ground_truth": ["A"],
+            "golden_doc": ["g1", "g2"],
+            "reference": ["n1", "n2", "n3"],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
 
-        result = load_triviaqa(str(filepath))
+        result = load_triviaqa(str(filepath), doc_pool=doc_pool)
         assert len(result[0].golden_docs) == 2
         assert len(result[0].noise_docs) == 3
 
@@ -322,10 +325,10 @@ class TestSkipMalformedLines:
     def test_skip_invalid_json(self, tmp_path):
         """Lines with invalid JSON are skipped."""
         valid = {
-            "question": "Q",
-            "answer": ["A"],
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
-            "noise_docs": [],
+            "query": "Q",
+            "ground_truth": ["A"],
+            "golden_doc": ["g1"],
+            "reference": [],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(
@@ -337,11 +340,11 @@ class TestSkipMalformedLines:
         assert result[0].question == "Q"
 
     def test_skip_missing_question(self, tmp_path):
-        """Entry missing 'question' field is skipped."""
+        """Entry missing 'query' field is skipped."""
         entry = {
-            "answer": ["A"],
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
-            "noise_docs": [],
+            "ground_truth": ["A"],
+            "golden_doc": ["g1"],
+            "reference": [],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
@@ -350,11 +353,11 @@ class TestSkipMalformedLines:
         assert len(result) == 0
 
     def test_skip_missing_answer(self, tmp_path):
-        """Entry missing 'answer' field is skipped."""
+        """Entry missing 'ground_truth' field is skipped."""
         entry = {
-            "question": "Q",
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
-            "noise_docs": [],
+            "query": "Q",
+            "golden_doc": ["g1"],
+            "reference": [],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
@@ -363,8 +366,8 @@ class TestSkipMalformedLines:
         assert len(result) == 0
 
     def test_skip_missing_golden_docs(self, tmp_path):
-        """Entry missing 'golden_docs' field is skipped."""
-        entry = {"question": "Q", "answer": ["A"], "noise_docs": []}
+        """Entry missing 'golden_doc' field is skipped."""
+        entry = {"query": "Q", "ground_truth": ["A"], "reference": []}
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
 
@@ -372,11 +375,11 @@ class TestSkipMalformedLines:
         assert len(result) == 0
 
     def test_skip_missing_noise_docs(self, tmp_path):
-        """Entry missing 'noise_docs' field is skipped."""
+        """Entry missing 'reference' field is skipped."""
         entry = {
-            "question": "Q",
-            "answer": ["A"],
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
+            "query": "Q",
+            "ground_truth": ["A"],
+            "golden_doc": ["g1"],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(json.dumps(entry) + "\n", encoding="utf-8")
@@ -387,13 +390,13 @@ class TestSkipMalformedLines:
     def test_valid_entries_survive_among_invalid(self, tmp_path):
         """Valid entries are kept even when surrounded by invalid ones."""
         valid = {
-            "question": "Q",
-            "answer": ["A"],
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
-            "noise_docs": [],
+            "query": "Q",
+            "ground_truth": ["A"],
+            "golden_doc": ["g1"],
+            "reference": [],
         }
         invalid_json = "{broken"
-        missing_field = json.dumps({"question": "Q"})
+        missing_field = json.dumps({"query": "Q"})
 
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(
@@ -407,10 +410,10 @@ class TestSkipMalformedLines:
     def test_empty_lines_are_skipped(self, tmp_path):
         """Blank lines in the JSONL file are silently skipped."""
         valid = {
-            "question": "Q",
-            "answer": ["A"],
-            "golden_docs": [{"doc_id": "g1", "content": "c"}],
-            "noise_docs": [],
+            "query": "Q",
+            "ground_truth": ["A"],
+            "golden_doc": ["g1"],
+            "reference": [],
         }
         filepath = tmp_path / "triviaqa.jsonl"
         filepath.write_text(
@@ -469,6 +472,8 @@ class TestGetPerQueryCorpus:
         entry = TriviaQAEntry(
             question="Q",
             answers=["A"],
+            golden_doc_ids=["g1", "g2"],
+            noise_doc_ids=[],
             golden_docs=[
                 Document(page_content="gold1", metadata={"doc_id": "g1"}),
                 Document(page_content="gold2", metadata={"doc_id": "g2"}),
@@ -486,6 +491,8 @@ class TestGetPerQueryCorpus:
         entry = TriviaQAEntry(
             question="Q",
             answers=["A"],
+            golden_doc_ids=["dup"],
+            noise_doc_ids=["dup", "n1"],
             golden_docs=[
                 Document(page_content="golden content", metadata={"doc_id": "dup"})
             ],
@@ -505,6 +512,8 @@ class TestGetPerQueryCorpus:
         entry = TriviaQAEntry(
             question="Q",
             answers=["A"],
+            golden_doc_ids=["g1"],
+            noise_doc_ids=["n1", "n2"],
             golden_docs=[
                 Document(page_content="g1", metadata={"doc_id": "g1"}),
             ],
@@ -522,6 +531,8 @@ class TestGetPerQueryCorpus:
         entry = TriviaQAEntry(
             question="Q",
             answers=["A"],
+            golden_doc_ids=["g1"],
+            noise_doc_ids=[],
             golden_docs=[
                 Document(page_content="only", metadata={"doc_id": "g1"})
             ],
